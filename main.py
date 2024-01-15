@@ -1,12 +1,13 @@
-from unet import UnetDecoder, DoubleConvolution, UpSample
-import numpy as np
+from unet import UNet
 import torch
 
 
 def main():
-    a = UpSample(in_channels=1024, out_channels=512)
-    data = torch.randn(size=(1, 1024, 28, 28))
-    a.forward(data)
+    unet = UNet(in_channels=3,
+                out_channels=3)
+    data = torch.randn(size=(1, 3, 572, 572))
+
+    x = unet(data)
 
 
 if __name__ == "__main__":
