@@ -1,14 +1,13 @@
 import os
 from PIL import Image
 
-from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, utils
+from torch.utils.data import Dataset
+from torchvision import transforms
 
 
 class CancerDataset(Dataset):
     def __init__(self,
-                 data_path,
-                 transform=True):
+                 data_path):
 
         self.frames_path = os.path.join(data_path, 'frames')
         self.masks_path = os.path.join(data_path, 'masks')
@@ -17,8 +16,6 @@ class CancerDataset(Dataset):
             self.frames_path) if os.path.splitext(img_path)[-1] in [".jpg", ".png"]]
         self.masks_listdir = [os.path.join(self.masks_path, img_path) for img_path in os.listdir(
             self.masks_path) if os.path.splitext(img_path)[-1] in [".jpg", ".png"]]
-
-        self.transform = transform
 
         self.target_imgsz = 640
 
@@ -30,15 +27,11 @@ class CancerDataset(Dataset):
             transforms.Resize(size=(self.target_imgsz, self.target_imgsz)),
             transforms.ToTensor()])  # also normalization
 
-        tr_image = data_transform(image)
+        image = data_transform(image)
 
-        return tr_image
+        image = image.float().contiguous()
 
-    def prepare_image(self, image):
-
-        cont_image = image.float().contiguous()
-
-        return cont_image
+        return image
 
     def __len__(self):
         return len(self.frames_listdir)
@@ -52,8 +45,8 @@ class CancerDataset(Dataset):
         mask_image = self.load_image(mask_name)
 
         if self.transform:
-            return {'image': self.prepare_image(self.transform_image(frame_image)),
-                    'mask': self.prepare_image(self.transform_image(mask_image))}
+            return {'image': self.transform_image(frame_image),
+                    'mask': self.transform_image(mask_image)}
 
         return {'image': self.prepare_image(frame_image),
                 'mask': self.prepare_image(mask_image)}
