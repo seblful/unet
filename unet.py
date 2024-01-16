@@ -15,12 +15,12 @@ class DoubleConvolution(nn.Module):
         self.conv_first = nn.Conv2d(in_channels=in_channels,
                                     out_channels=out_channels,
                                     kernel_size=kernel_size,
-                                    padding=padding)
+                                    padding='same')
 
         self.conv_second = nn.Conv2d(in_channels=out_channels,
                                      out_channels=out_channels,
                                      kernel_size=kernel_size,
-                                     padding=padding)
+                                     padding='same')
 
         self.relu = nn.ReLU()
 
@@ -158,6 +158,5 @@ class UNet(nn.Module):
 
         # Pass x to decoder
         x = self.decoder(x, skip_connections)
-        print(x.shape)
 
         return x
