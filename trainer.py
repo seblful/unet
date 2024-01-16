@@ -16,11 +16,14 @@ class UnetTrainer():
                  val_ratio,
                  batch_size,
                  num_epochs,
+                 checkpoints_path,
                  amp=False,
                  lr=1e-5,
                  weight_decay=1e-8,
                  momentum=0.999,
                  gradient_clipping=1.0):
+
+        self.checkpoints_path = checkpoints_path
 
         # Device and average mixed precision
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -52,8 +55,8 @@ class UnetTrainer():
         # Model
         self.image_dim = self.train_dataset[0]['image'].shape[0]
         self.model = UNet(in_channels=self.image_dim,
-                          out_channels=self.image_dim).to(device=self.device,
-                                                          memory_format=torch.channels_last)
+                          out_channels=3).to(device=self.device,
+                                             memory_format=torch.channels_last)
 
         # Optimizer, scheduler, loss
         self.num_epochs = num_epochs
@@ -71,8 +74,6 @@ class UnetTrainer():
         self.grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
 
         self.gradient_clipping = gradient_clipping
-
-        self.global_step = 0
 
     def dice_coeff(self,
                    input,
@@ -95,10 +96,10 @@ class UnetTrainer():
 
     def dice_loss(self, input, target):
         # Dice loss (objective to minimize) between 0 and 1
-        return 1 - self.dice_coeff(input, target, reduce_batch_first=True)
+        return 1 - self.dice_coeff(input, target, reduce_batch_first=False)
 
     @torch.inference_mode()
-    def evaluate(self):
+    def val_step(self):
         self.model.eval()
         dice_score = 0
 
@@ -120,54 +121,67 @@ class UnetTrainer():
 
                 # predict the mask
                 pred_masks = self.model(images)
-
                 pred_masks = (F.sigmoid(pred_masks) > 0.5).float()
+
                 # compute the Dice score
                 dice_score += self.dice_coeff(pred_masks,
                                               true_masks,
                                               reduce_batch_first=False)
 
+        val_score = dice_score / max(len(self.val_loader), 1)
+        print(f"Validation loss: {val_score}.")
+
+        self.scheduler.step(val_score)
+
         self.model.train()
 
-        return dice_score / max(len(self.val_loader), 1)
+        return
+
+    def train_step(self, epoch):
+        self.model.train()
+        epoch_loss = 0
+        with tqdm(total=len(self.train_dataset),
+                  desc=f'Epoch {epoch}/{self.num_epochs}',
+                  unit='img') as pbar:
+            for batch in self.train_loader:
+                images, true_masks = batch['image'], batch['mask']
+
+                images = images.to(device=self.device,
+                                   dtype=torch.float32,
+                                   memory_format=torch.channels_last)
+
+                true_masks = true_masks.to(
+                    device=self.device, dtype=torch.long)
+
+                with torch.autocast(self.device, enabled=self.amp):
+                    pred_masks = self.model(images)
+                    loss = self.criterion(
+                        pred_masks.squeeze(1), true_masks.float())
+                    loss += self.dice_loss(F.sigmoid(pred_masks.squeeze(1)),
+                                           true_masks.float())
+
+                self.optimizer.zero_grad(set_to_none=True)
+                self.grad_scaler.scale(loss).backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                               self.gradient_clipping)
+                self.grad_scaler.step(self.optimizer)
+                self.grad_scaler.update()
+
+                pbar.update(images.shape[0])
+                epoch_loss += loss.item()
+                pbar.set_postfix(**{'loss (batch)': loss.item()})
 
     def train(self):
         for epoch in range(1, self.num_epochs + 1):
-            self.model.train()
-            epoch_loss = 0
-            with tqdm(total=len(self.train_dataset),
-                      desc=f'Epoch {epoch}/{self.num_epochs}',
-                      unit='img') as pbar:
-                for batch in self.train_loader:
-                    images, true_masks = batch['image'], batch['mask']
+            # Train step
+            self.train_step(epoch)
+            # Val step
+            self.val_step()
+            # Save checkpoint
+            self.save_checkpoint(epoch)
 
-                    images = images.to(device=self.device,
-                                       dtype=torch.float32,
-                                       memory_format=torch.channels_last)
-
-                    true_masks = true_masks.to(
-                        device=self.device, dtype=torch.long)
-
-                    with torch.autocast(self.device, enabled=self.amp):
-                        pred_masks = self.model(images)
-
-                        loss = self.criterion(
-                            pred_masks.squeeze(1), true_masks.float())
-                        loss += self.dice_loss(F.sigmoid(pred_masks.squeeze(1)),
-                                               true_masks.float())
-
-                    self.optimizer.zero_grad(set_to_none=True)
-                    self.grad_scaler.scale(loss).backward()
-                    torch.nn.utils.clip_grad_norm_(self.model.parameters(),
-                                                   self.gradient_clipping)
-                    self.grad_scaler.step(self.optimizer)
-                    self.grad_scaler.update()
-
-                    pbar.update(images.shape[0])
-                    global_step += 1
-                    epoch_loss += loss.item()
-                    pbar.set_postfix(**{'loss (batch)': loss.item()})
-
-                    # Evaluation round
-                    val_score = self.evaluate()
-                    self.scheduler.step(val_score)
+    def save_checkpoint(self, epoch):
+        state_dict = self.model.state_dict()
+        torch.save(
+            state_dict, f"{self.checkpoints_path}/checkpoint_epoch{epoch}.pth")
+        print(f"Model 'checkpoint_epoch {epoch}.pth' was saved.")
