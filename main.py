@@ -6,6 +6,7 @@ import torch
 import os
 HOME = os.getcwd()
 DATA = os.path.join(HOME, 'data')
+CHECKPOINTS = os.path.join(HOME, 'checkpoints')
 
 
 def main():
@@ -20,10 +21,12 @@ def main():
 
     t = UnetTrainer(dataset=d,
                     val_ratio=0.1,
-                    batch_size=8,
-                    num_epochs=5)
+                    batch_size=2,
+                    num_epochs=5,
+                    checkpoints_path=CHECKPOINTS,
+                    amp=True)
 
-    t
+    t.train()
 
 
 if __name__ == "__main__":
