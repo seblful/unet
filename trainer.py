@@ -55,7 +55,7 @@ class UnetTrainer():
         # Model
         self.image_dim = self.train_dataset[0]['image'].shape[0]
         self.model = UNet(in_channels=self.image_dim,
-                          out_channels=3).to(device=self.device,
+                          out_channels=1).to(device=self.device,
                                              memory_format=torch.channels_last)
 
         # Optimizer, scheduler, loss
@@ -82,7 +82,6 @@ class UnetTrainer():
                    epsilon=1e-6):
         # Average of Dice coefficient for all batches, or for a single mask
         assert input.size() == target.size()
-        assert input.dim() == 3 or not reduce_batch_first
 
         sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
 
@@ -156,8 +155,8 @@ class UnetTrainer():
                 with torch.autocast(self.device, enabled=self.amp):
                     pred_masks = self.model(images)
                     loss = self.criterion(
-                        pred_masks.squeeze(1), true_masks.float())
-                    loss += self.dice_loss(F.sigmoid(pred_masks.squeeze(1)),
+                        pred_masks, true_masks.float())
+                    loss += self.dice_loss(F.sigmoid(pred_masks),
                                            true_masks.float())
 
                 self.optimizer.zero_grad(set_to_none=True)
