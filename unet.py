@@ -9,18 +9,18 @@ class DoubleConvolution(nn.Module):
                  in_channels,
                  out_channels,
                  kernel_size=3,
-                 padding=0):
+                 padding='same'):
         super().__init__()
 
         self.conv_first = nn.Conv2d(in_channels=in_channels,
                                     out_channels=out_channels,
                                     kernel_size=kernel_size,
-                                    padding='same')
+                                    padding=padding)
 
         self.conv_second = nn.Conv2d(in_channels=out_channels,
                                      out_channels=out_channels,
                                      kernel_size=kernel_size,
-                                     padding='same')
+                                     padding=padding)
 
         self.relu = nn.ReLU()
 
