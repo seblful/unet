@@ -10,7 +10,8 @@ CHECKPOINTS = os.path.join(HOME, 'checkpoints')
 
 
 def main():
-    cancer_dataset = CancerDataset(data_path=DATA)
+    cancer_dataset = CancerDataset(data_path=DATA,
+                                   target_imgsz=512)
 
     unet_trainer = UnetTrainer(dataset=cancer_dataset,
                                val_ratio=0.1,
