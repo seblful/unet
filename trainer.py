@@ -76,65 +76,19 @@ class UnetTrainer():
         self.gradient_clipping = gradient_clipping
 
     def dice_coeff(self,
-                   input,
+                   predicted,
                    target,
-                   reduce_batch_first=False,
-                   epsilon=1e-6):
-        # Average of Dice coefficient for all batches, or for a single mask
-        assert input.size() == target.size()
+                   eps=1e-6):
+        predicted = predicted.view(self.batch_size, -1)
+        target = target.view(self.batch_size, -1)
+        intersection = (predicted * target).sum(dim=1)
+        dice_coeff = (2. * intersection + eps) / \
+            (predicted.sum(dim=1) + target.sum(dim=1) + eps)
 
-        sum_dim = (-1, -2) if input.dim() == 2 or not reduce_batch_first else (-1, -2, -3)
-
-        inter = 2 * (input * target).sum(dim=sum_dim)
-        sets_sum = input.sum(dim=sum_dim) + target.sum(dim=sum_dim)
-        sets_sum = torch.where(sets_sum == 0, inter, sets_sum)
-
-        dice = (inter + epsilon) / (sets_sum + epsilon)
-
-        return dice.mean()
+        return dice_coeff.mean()
 
     def dice_loss(self, input, target):
-        # Dice loss (objective to minimize) between 0 and 1
-        return 1 - self.dice_coeff(input, target, reduce_batch_first=False)
-
-    @torch.inference_mode()
-    def val_step(self):
-        self.model.eval()
-        dice_score = 0
-
-        # iterate over the validation set
-        with torch.autocast(self.device, enabled=self.amp):
-            for batch in tqdm(self.val_loader,
-                              total=len(self.val_loader),
-                              desc='Validation round',
-                              unit='batch',
-                              leave=False):
-                images, true_masks = batch['image'], batch['mask']
-
-                # move images and labels to correct device and type
-                images = images.to(device=self.device,
-                                   dtype=torch.float32,
-                                   memory_format=torch.channels_last)
-                true_masks = true_masks.to(device=self.device,
-                                           dtype=torch.long)
-
-                # predict the mask
-                pred_masks = self.model(images)
-                pred_masks = (F.sigmoid(pred_masks) > 0.5).float()
-
-                # compute the Dice score
-                dice_score += self.dice_coeff(pred_masks,
-                                              true_masks,
-                                              reduce_batch_first=False)
-
-        val_score = dice_score / max(len(self.val_loader), 1)
-        print(f"Validation loss: {val_score}.")
-
-        self.scheduler.step(val_score)
-
-        self.model.train()
-
-        return
+        return 1 - self.dice_coeff(input, target)
 
     def train_step(self, epoch):
         self.model.train()
@@ -154,10 +108,12 @@ class UnetTrainer():
 
                 with torch.autocast(self.device, enabled=self.amp):
                     pred_masks = self.model(images)
-                    loss = self.criterion(
-                        pred_masks, true_masks.float())
-                    loss += self.dice_loss(F.sigmoid(pred_masks),
-                                           true_masks.float())
+                    print("Masks shapes: ", pred_masks.shape, true_masks.shape)
+                    loss = self.criterion(pred_masks, true_masks.float())
+                    dice_loss = self.dice_loss(
+                        F.sigmoid(pred_masks), true_masks.float())
+                    print("Losses: ", loss, dice_loss)
+                    loss += dice_loss
 
                 self.optimizer.zero_grad(set_to_none=True)
                 self.grad_scaler.scale(loss).backward()
@@ -166,9 +122,43 @@ class UnetTrainer():
                 self.grad_scaler.step(self.optimizer)
                 self.grad_scaler.update()
 
-                pbar.update(images.shape[0])
                 epoch_loss += loss.item()
+
+                pbar.update(images.shape[0])
                 pbar.set_postfix(**{'loss (batch)': loss.item()})
+
+    @torch.inference_mode()
+    def val_step(self):
+        self.model.eval()
+        dice_score = 0
+
+        # Iterate over the validation set
+        with torch.autocast(self.device, enabled=self.amp):
+            for batch in self.val_loader:
+                # Retrieve images and masks
+                images, true_masks = batch['image'], batch['mask']
+
+                # Move images and labels to correct device and type
+                images = images.to(device=self.device,
+                                   dtype=torch.float32,
+                                   memory_format=torch.channels_last)
+                true_masks = true_masks.to(device=self.device,
+                                           dtype=torch.long)
+
+                # Predict the mask
+                pred_masks = self.model(images)
+                pred_masks = (F.sigmoid(pred_masks) > 0.5).float()
+
+                # Compute the Dice score
+                dice_score += self.dice_coeff(pred_masks,
+                                              true_masks)
+
+        val_score = dice_score / max(len(self.val_loader), 1)
+        print(f"Validation score: {val_score}.")
+
+        self.scheduler.step(val_score)
+
+        self.model.train()
 
     def train(self):
         for epoch in range(1, self.num_epochs + 1):
