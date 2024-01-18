@@ -7,7 +7,7 @@ from PIL import Image
 HOME = os.getcwd()
 DATA = os.path.join(HOME, 'data')
 CHECKPOINTS = os.path.join(HOME, 'checkpoints')
-CHECKPOINT = os.path.join(CHECKPOINTS, 'checkpoint_epoch2.pth')
+CHECKPOINT = os.path.join(CHECKPOINTS, 'best.pth')
 TEST_DATA = os.path.join(DATA, 'test-images')
 
 
