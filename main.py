@@ -15,10 +15,10 @@ def main():
 
     unet_trainer = UnetTrainer(dataset=cancer_dataset,
                                val_ratio=0.1,
-                               batch_size=2,
-                               num_epochs=5,
+                               batch_size=4,
+                               num_epochs=10,
                                checkpoints_path=CHECKPOINTS,
-                               amp=True)
+                               lr=1e-5)
 
     unet_trainer.train()
 
