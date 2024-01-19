@@ -22,12 +22,18 @@ class DoubleConvolution(nn.Module):
                                      kernel_size=kernel_size,
                                      padding=padding)
 
+        self.batch_norm_first = nn.BatchNorm2d(num_features=out_channels)
+        self.batch_norm_second = nn.BatchNorm2d(num_features=out_channels)
+
         self.relu = nn.ReLU()
 
     def forward(self, x):
         x = self.conv_first(x)
+        x = self.batch_norm_first(x)
         x = self.relu(x)
+
         x = self.conv_second(x)
+        x = self.batch_norm_second(x)
         x = self.relu(x)
 
         return x
