@@ -2,6 +2,7 @@ from unet import UNet
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import DataLoader, random_split
 
@@ -95,7 +96,7 @@ class UnetTrainer():
                 self.device), batch['mask'].to(self.device)
 
             pred_masks = self.model(images)
-            loss = self.criterion(pred_masks, true_masks)
+            loss = self.criterion(F.sigmoid(pred_masks), true_masks)
 
             self.optimizer.zero_grad()
             loss.backward()
@@ -119,7 +120,7 @@ class UnetTrainer():
 
             # Predict the mask
             pred_masks = self.model(images)
-            loss = self.criterion(pred_masks, true_masks)
+            loss = self.criterion(F.sigmoid(pred_masks), true_masks)
             # pred_masks = (F.sigmoid(pred_masks) > 0.5).float()
 
             epoch_loss += loss.item()
