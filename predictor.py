@@ -6,6 +6,8 @@ from torchvision import transforms
 
 import matplotlib.pyplot as plt
 
+import numpy as np
+
 
 class UnetPredictor():
     def __init__(self,
@@ -34,17 +36,15 @@ class UnetPredictor():
 
     def predict(self,
                 image,
-                out_threshold=0.5):
+                out_threshold=0.001):
         # Transform image
         transf_image = self.transform_image(image)
 
         with torch.no_grad():
             output = self.net(transf_image).cpu()
-            output = F.interpolate(
-                output, (image.size[1], image.size[0]), mode='bilinear')
-
-            mask = torch.sigmoid(output) > out_threshold
-            mask = mask[0].long().squeeze().numpy()
+            mask = F.sigmoid(output)
+            mask, _ = torch.max(mask, dim=0)
+            mask = mask.view(512, 512)
 
         return transf_image, mask
 
@@ -53,6 +53,6 @@ class UnetPredictor():
         ax[0].set_title('Input Image')
         ax[0].imshow(image)
         ax[1].set_title('Mask')
-        ax[1].imshow(mask == 1, cmap='gray')
+        ax[1].imshow(mask[:, :], cmap='gray')
         plt.xticks([]), plt.yticks([])
         plt.show()
