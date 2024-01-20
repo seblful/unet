@@ -1,7 +1,5 @@
 from dataset import CancerDataset
-from unet import UNet
 from trainer import UnetTrainer
-import torch
 
 import os
 HOME = os.getcwd()
@@ -14,11 +12,11 @@ def main():
                                    target_imgsz=512)
 
     unet_trainer = UnetTrainer(dataset=cancer_dataset,
-                               val_ratio=0.1,
+                               val_ratio=0.2,
                                batch_size=4,
-                               num_epochs=10,
+                               num_epochs=20,
                                checkpoints_path=CHECKPOINTS,
-                               lr=1e-5)
+                               lr=0.0001)
 
     unet_trainer.train()
 
