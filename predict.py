@@ -1,4 +1,3 @@
-
 from predictor import UnetPredictor
 
 import os
@@ -15,13 +14,12 @@ def main():
     predictor = UnetPredictor(checkpoint=CHECKPOINT)
 
     for filename in os.listdir(TEST_DATA):
+        print(filename)
         full_filename = os.path.join(TEST_DATA, filename)
         image = Image.open(full_filename)
 
-        transf_image, mask = predictor.predict(image)
+        mask = predictor.predict(image, out_threshold=0.5)
         predictor.plot_mask(image, mask)
-
-        break
 
 
 if __name__ == "__main__":
