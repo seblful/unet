@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from torch.utils.data import DataLoader, random_split
+from torch.cuda.amp import GradScaler
 
 from tqdm import tqdm
 
@@ -18,7 +19,7 @@ class UnetTrainer():
                  checkpoints_path,
                  lr=1e-5,
                  weight_decay=1e-8,
-                 momentum=0.999):
+                 momentum=0.9):
 
         self.checkpoints_path = checkpoints_path
 
@@ -63,9 +64,11 @@ class UnetTrainer():
                                        momentum=momentum)
 
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer,
-                                                              mode='max',
-                                                              patience=5)  # goal: maximize Dice score
+                                                              patience=5,
+                                                              verbose=True)  # goal: maximize Dice score
         self.criterion = nn.BCEWithLogitsLoss()
+
+        self.scaler = GradScaler()
 
         self.min_loss = 9_999_999.0
 
@@ -87,20 +90,30 @@ class UnetTrainer():
     def train_step(self, epoch):
         self.model.train()
         epoch_loss = 0
+        total_len = len(self.train_dataset) // self.batch_size
         for batch in tqdm(self.train_loader,
-                          total=len(self.train_dataset) // self.batch_size + 1,
+                          total=total_len,
                           desc=f'Epoch {epoch}/{self.num_epochs}',
                           unit='batch'):
 
             images, true_masks = batch['image'].to(
                 self.device), batch['mask'].to(self.device)
 
-            pred_masks = self.model(images)
-            loss = self.criterion(F.sigmoid(pred_masks), true_masks)
-
             self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
+
+            with torch.autocast(device_type=self.device, dtype=torch.float16):
+
+                pred_masks = self.model(images)
+                # pred_masks = pred_masks > 0.5
+                loss = self.criterion(pred_masks, true_masks)
+
+            self.scaler.scale(loss).backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+
+            self.scaler.step(self.optimizer)
+
+            # Updates the scale for next iteration.
+            self.scaler.update()
 
             epoch_loss += loss.item()
 
@@ -112,6 +125,7 @@ class UnetTrainer():
     def val_step(self):
         self.model.eval()
         epoch_loss = 0
+        epoch_dice = 0
         # Iterate over the validation set
         for batch in self.val_loader:
             # Retrieve images and masks
@@ -120,14 +134,17 @@ class UnetTrainer():
 
             # Predict the mask
             pred_masks = self.model(images)
-            loss = self.criterion(F.sigmoid(pred_masks), true_masks)
-            # pred_masks = (F.sigmoid(pred_masks) > 0.5).float()
+            loss = self.criterion(pred_masks, true_masks)
+            dice_coeff = self.dice_coeff(F.sigmoid(pred_masks), true_masks)
 
             epoch_loss += loss.item()
+            epoch_dice += dice_coeff.item()
 
         final_loss = epoch_loss / len(self.val_loader)
+        final_dice = epoch_dice / len(self.val_loader)
 
         print(f"Validation loss: {final_loss:.3f}.")
+        print(f"Validation dice: {final_dice:.3f}.")
 
         return final_loss
 
@@ -138,7 +155,7 @@ class UnetTrainer():
             # Val step
             val_loss = self.val_step()
             # Add loss to scheduler
-            self.scheduler.step(train_loss)
+            self.scheduler.step(val_loss)
             # Save checkpoint
             self.save_checkpoint(val_loss)
 
